@@ -1,0 +1,22 @@
+# --- secrets / keys (never commit) ---
+*.pem
+.env
+*.key
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# --- local database (SQLite dev file) ---
+*.db
+*.db-shm
+*.db-wal
+
+# --- editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
