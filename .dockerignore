@@ -1,0 +1,25 @@
+# Keep these OUT of the Docker build (smaller, faster, safer image)
+
+# the virtual env (huge — never copy it in; deps get reinstalled in the image)
+.venv/
+
+# python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# local SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# secrets / keys (must never enter an image)
+*.pem
+*.key
+.env
+
+# git + docs + local config (not needed at runtime)
+.git/
+.gitignore
+README.md
+.python-version
