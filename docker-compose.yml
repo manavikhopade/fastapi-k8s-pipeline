@@ -1,0 +1,30 @@
+services:
+  # 1. The PostgreSQL database (a server, running in its own container)
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fituser
+      POSTGRES_PASSWORD: fitpass
+      POSTGRES_DB: fitcheck
+    volumes:
+      - pgdata:/var/lib/postgresql/data        # keeps data even if the container is removed
+    healthcheck:                                # "is Postgres ready to accept connections?"
+      test: ["CMD-SHELL", "pg_isready -U fituser -d fitcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 2. Your app (built from the Dockerfile), pointed at the db above
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://fituser:fitpass@db:5432/fitcheck
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy            # wait until Postgres is READY, not just started
+
+# named volume where Postgres stores its files
+volumes:
+  pgdata:
