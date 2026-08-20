@@ -1,6 +1,9 @@
 # 1. Start from a small, official Python 3.12 image
 FROM python:3.12-slim
 
+# Patch OS packages to fix known vulnerabilities (util-linux CVE-2026-53615)
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 # 2. Bring in the `uv` tool by copying it from its official image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
