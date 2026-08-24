@@ -1,0 +1,19 @@
+app:
+  image:
+    repository: fitcheck
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  port: 8000
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 256Mi }
+
+postgres:
+  image: postgres:16
+  storage: 1Gi
+
+db:
+  user: fituser
+  password: fitpass
+  name: fitcheck
