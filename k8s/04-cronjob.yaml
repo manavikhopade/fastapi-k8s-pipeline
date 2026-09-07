@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fitcheck-weekly-analysis
+  namespace: fitcheck
+spec:
+  # schedule: weekly (Sunday at 00:00 UTC). Adjust as needed.
+  schedule: "0 0 * * 0"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: run-analysis
+              image: curlimages/curl:8.2.1
+              # call the app's internal service endpoint for weekly analysis
+              command: ["/bin/sh", "-c", "curl -sS --fail http://app:8000/analysis/weekly || exit 1"]
+          # run in same namespace so Service name 'app' resolves

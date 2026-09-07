@@ -17,3 +17,22 @@ db:
   user: fituser
   password: fitpass
   name: fitcheck
+
+# CronJob configuration for scheduled analysis (Phase 6)
+cronjob:
+  enabled: true
+  # Default: run weekly (Sunday at 00:00). Override when deploying via --set or values file.
+  schedule: "0 0 * * 0"
+  # Image used to call the internal service; curlimages is minimal and includes curl
+  image: "curlimages/curl:8.2.1"
+  # The command executed in the CronJob pod. Helm will substitute the app port from .Values.app.port
+  # Keep this as an array to avoid shell interpolation differences.
+  command:
+    - "curl"
+    - "-sS"
+    - "--fail"
+    - "http://app:{{ .Values.app.port }}/analysis/weekly"
+  # Backoff limit for failed jobs
+  backoffLimit: 3
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
