@@ -1,8 +1,9 @@
 # FitCheck End-to-End Validation
 
-Complete end-to-end test of all 5 phases. Designed for GitHub Codespaces (or local dev environment).
+Complete end-to-end test of all 5 phases. **Tested and working in GitHub Codespaces.**
 
-**Total time:** ~15 minutes
+**Total time:** ~20 minutes  
+**Prerequisites:** GitHub Codespaces environment (or local with Docker + Kubernetes)
 
 ---
 
@@ -80,28 +81,19 @@ docker build -t fitcheck:dev .
 
 ---
 
-### Step 5: Run app in Docker (with SQLite)
+### Step 5: Run app in Docker (SKIP in Codespaces)
 
+*In Codespaces, Docker-in-Docker port binding has limitations. Skip this step.*
+
+**In local environment, this would work:**
 ```bash
 docker run --rm -p 8000:8000 fitcheck:dev &
 sleep 2
-
-# Test health
-curl http://localhost:8000/health
-```
-
-**Expected:**
-```json
-{"status": "ok"}
-```
-
-Stop container:
-
-```bash
+curl http://localhost:8000/health  # Should return {"status": "ok"}
 docker stop $(docker ps -q --filter ancestor=fitcheck:dev)
 ```
 
-**Validates:** Phase 2a — container runs
+**Validates:** Phase 2a — container runs (skipped in Codespaces due to Docker daemon limitations)
 
 ---
 
@@ -226,73 +218,84 @@ git log --all --grep="Phase 3" --oneline
 
 ## Phase 4-5: Kubernetes + Helm
 
-### Step 10: Start Kubernetes
+### Step 10: Check Kubernetes Cluster
 
-**Option A: Minikube**
+**Codespaces:** A Kind cluster is pre-installed (from earlier validation runs).
 
 ```bash
+kubectl get nodes
+```
+
+**Expected:**
+```
+NAME                     STATUS   ROLES           AGE   VERSION
+fitcheck-control-plane   Ready    control-plane   Xd    v1.36.1
+```
+
+**If no cluster exists, create one:**
+
+```bash
+# Option A: Kind (works in Codespaces)
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/
+kind create cluster --name fitcheck
+
+# Option B: Minikube (requires Docker with nested virtualization)
 minikube start
 ```
 
-**Option B: Kind**
-
-```bash
-kind create cluster --name fitcheck
-kubectl cluster-info
-```
-
-**Expected:** Cluster is reachable
-
 ---
 
-### Step 11: Load image into cluster
+### Step 11: Build and Load Image
 
 ```bash
+# Build the image
 docker build -t fitcheck:dev .
 
-# For Minikube:
-minikube image load fitcheck:dev
-
-# For Kind:
+# Load into Kind cluster (Codespaces)
 kind load docker-image fitcheck:dev --name fitcheck
 ```
 
-**Verify:**
+**Verify the image is available:**
 
 ```bash
-kubectl run test-image --image=fitcheck:dev --restart=Never --rm -it -- sh -c "echo 'OK'" && sleep 1
+kubectl run test-image --image=fitcheck:dev --restart=Never --rm -it -- sh -c "echo 'OK'"
 ```
 
-**Expected:** Pod runs and exits cleanly
+**Expected:** Pod starts and prints "OK"
 
 ---
 
 ### Step 12: Deploy with Helm
 
 ```bash
-# Create namespace
-kubectl create namespace fitcheck
+# Create namespace (or skip if it exists)
+kubectl create namespace fitcheck 2>/dev/null || true
 
-# Deploy
+# Clean up old release if it exists
+helm uninstall fitcheck -n fitcheck 2>/dev/null || true
+sleep 2
+
+# Deploy fresh
 helm install fitcheck ./helm/fitcheck \
   --namespace fitcheck \
   --set app.image.tag=dev \
   --set app.image.pullPolicy=IfNotPresent \
-  --set cronjob.schedule="*/5 * * * *"  # Run every 5 min for testing
+  --set cronjob.schedule="*/5 * * * *"
 
-# Wait for pods
-kubectl get pods -n fitcheck -w
+# Check pods
+sleep 10
+kubectl get pods -n fitcheck
 ```
 
-**Expected:** After ~30 seconds:
+**Expected:**
 ```
 NAME                   READY   STATUS    RESTARTS   AGE
-fitcheck-app-5d4f...   1/1     Running   0          10s
-fitcheck-app-7b2k...   1/1     Running   0          10s
-fitcheck-postgres-0    1/1     Running   0          15s
+app-647f65cdc4-6lqjk   1/1     Running   0          30s
+app-647f65cdc4-99ghh   1/1     Running   0          30s
+postgres-0             1/1     Running   0          30s
 ```
-
-Press `Ctrl+C` to stop watching.
 
 **Validates:** Phase 4 & 5 — Kubernetes resources deployed
 
@@ -469,4 +472,134 @@ helm get values fitcheck -n fitcheck
 kubectl get svc -n fitcheck
 # Make sure a pod is running
 kubectl get pods -n fitcheck
+```
+
+---
+
+## Deployment Workflow: Making Changes
+
+### When You Change Code
+
+**1. Make your changes locally**
+
+```bash
+# Edit files (e.g., app/main.py)
+# Commit and push
+git add .
+git commit -m "Add new feature"
+git push origin main
+```
+
+**2. GitHub Actions runs automatically**
+
+- Trigger: `push` to `main` branch
+- Pipeline: Test → Build → Scan (Trivy) → Push to GHCR
+- Status: Check `.github/workflows/ci.yaml` tab on GitHub
+- Result: New image pushed to `ghcr.io/manavikhopade/fitcheck:<commit-sha>`
+
+**3. To deploy new version to Kubernetes:**
+
+```bash
+# Option A: Pull new image from GHCR (production workflow)
+# (Not automated yet; would require ArgoCD or Flux for GitOps)
+
+# Option B: Rebuild locally and redeploy (development workflow)
+docker build -t fitcheck:dev .
+kind load docker-image fitcheck:dev --name fitcheck
+
+# Trigger a rollout
+helm upgrade fitcheck ./helm/fitcheck \
+  --namespace fitcheck \
+  --set app.image.tag=dev \
+  --reuse-values
+
+# Watch pods restart
+kubectl get pods -n fitcheck -w
+```
+
+### Testing Locally Before Pushing
+
+**To validate changes without pushing to GitHub:**
+
+```bash
+# 1. Run tests locally
+uv run pytest tests/ -v
+
+# 2. Build and test in Docker Compose
+docker compose up --build -d
+sleep 5
+
+# Create test data
+curl -X POST http://localhost:8000/checkins \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-09-09","workout_type":"cycling","duration_minutes":60,"did_cooldown":true,"protein_grams":90}'
+
+# Verify
+curl http://localhost:8000/analysis/weekly
+
+# Clean up
+docker compose down
+
+# 3. If satisfied, push
+git push origin main
+```
+
+### CI/CD Pipeline Details
+
+**File:** `.github/workflows/ci.yaml`
+
+**Triggers:**
+- `push` to `main` → Run full pipeline (test + build + push)
+- `pull_request` → Run tests only (no image push)
+
+**Steps:**
+1. **Test** — `uv run pytest tests/ -v`
+2. **Build** — `docker build -t fitcheck:dev .`
+3. **Scan** — `trivy image` (security check; fails if HIGH/CRITICAL CVEs found)
+4. **Push** — `docker push ghcr.io/manavikhopade/fitcheck:...` (only on `main` branch)
+
+**Check status:**
+```bash
+# View workflow runs
+git log --oneline | grep "ci:" || echo "Check GitHub Actions tab"
+
+# View specific run
+gh run list --workflow=ci.yaml
+gh run view <run-id> --log
+```
+
+### Common Deployment Tasks
+
+**Update app replicas:**
+```bash
+helm upgrade fitcheck ./helm/fitcheck \
+  --namespace fitcheck \
+  --set app.replicaCount=3 \
+  --reuse-values
+```
+
+**Change CronJob schedule (for testing):**
+```bash
+helm upgrade fitcheck ./helm/fitcheck \
+  --namespace fitcheck \
+  --set cronjob.schedule="*/2 * * * *" \  # Run every 2 minutes
+  --reuse-values
+```
+
+**View Helm release values:**
+```bash
+helm get values fitcheck -n fitcheck
+helm get manifest fitcheck -n fitcheck
+```
+
+**Rollback to previous version:**
+```bash
+helm rollback fitcheck -n fitcheck
+```
+
+**Delete everything and start fresh:**
+```bash
+helm uninstall fitcheck -n fitcheck
+kubectl delete namespace fitcheck
+# Then re-run from Step 12 in validation
 ```
